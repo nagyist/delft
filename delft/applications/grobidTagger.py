@@ -14,7 +14,7 @@ MODEL_LIST = ['affiliation-address', 'citation', 'date', 'header', 'name-citatio
 
 
 def configure(model, architecture, output_path=None, max_sequence_length=-1, batch_size=-1,
-              embeddings_name=None, max_epoch=-1, use_ELMo=False, patience=-1):
+              embeddings_name=None, max_epoch=-1, use_ELMo=False, patience=-1, early_stop=True):
     """
     Set up the default parameters based on the model type.
     """
@@ -24,7 +24,6 @@ def configure(model, architecture, output_path=None, max_sequence_length=-1, bat
         model_name = 'grobid-' + model
 
     multiprocessing = True
-    early_stop = True
 
     if "BERT" in architecture:
         # architectures with some transformer layer/embeddings inside
@@ -137,17 +136,23 @@ def configure(model, architecture, output_path=None, max_sequence_length=-1, bat
 # train a GROBID model with all available data
 def train(model, embeddings_name=None, architecture=None, transformer=None, input_path=None, 
         output_path=None, features_indices=None, max_sequence_length=-1, batch_size=-1, max_epoch=-1, 
-        use_ELMo=False, incremental=False, input_model_path=None, patience=-1):
+        use_ELMo=False, incremental=False, input_model_path=None, patience=-1, validation_path=None):
 
     print('Loading data...')
-    if input_path == None:
+    if input_path is None:
         x_all, y_all, f_all = load_data_and_labels_crf_file('data/sequenceLabelling/grobid/'+model+'/'+model+'-060518.train')
     else:
         x_all, y_all, f_all = load_data_and_labels_crf_file(input_path)
 
     print(len(x_all), 'total sequences')
 
-    x_train, x_valid, y_train, y_valid, f_train, f_valid = train_test_split(x_all, y_all, f_all, test_size=0.1, shuffle=True)
+    if validation_path:
+        x_train = x_all
+        y_train = y_all
+        f_train = f_all
+        x_valid, y_valid, f_valid = load_data_and_labels_crf_file(validation_path)
+    else:
+        x_train, x_valid, y_train, y_valid, f_train, f_valid = train_test_split(x_all, y_all, f_all, test_size=0.1, shuffle=True)
 
     print(len(x_train), 'train sequences')
     print(len(x_valid), 'validation sequences')
@@ -163,7 +168,10 @@ def train(model, embeddings_name=None, architecture=None, transformer=None, inpu
                                                                             embeddings_name,
                                                                             max_epoch,
                                                                             use_ELMo,
-                                                                            patience)
+                                                                            patience,
+                                                                            validation_path is not None)
+
+
     model = Sequence(model_name,
                      recurrent_dropout=0.50,
                      embeddings_name=embeddings_name,
@@ -392,6 +400,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=-1, help="batch-size parameter to be used.")
     parser.add_argument("--patience", type=int, default=-1, help="patience, number of extra epochs to perform after "
                                                                  "the best epoch before stopping a training.")
+    parser.add_argument("--validation", help="Grobid data file to be used for batch validation (train action) for "
+                                             "early stop.", default=None)
 
     
 
@@ -410,6 +420,7 @@ if __name__ == "__main__":
     use_ELMo = args.use_ELMo
     incremental = args.incremental
     patience = args.patience
+    validation_path = args.validation
 
     if transformer is None and embeddings_name is None:
         # default word embeddings
@@ -427,7 +438,8 @@ if __name__ == "__main__":
             use_ELMo=use_ELMo,
             incremental=incremental,
             input_model_path=input_model_path,
-            patience=patience)
+            patience=patience,
+            validation_path=validation_path)
 
     if action == Tasks.EVAL:
         if args.fold_count is not None and args.fold_count > 1:
